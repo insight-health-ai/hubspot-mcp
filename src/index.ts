@@ -19,7 +19,7 @@ function formatResponse(data: any) {
     text = String(data)
   }
 
-  return { content: [{ type: "text", text }] }
+  return { content: [{ type: "text" as const, text }] }
 }
 
 async function makeApiRequest(apiKey: string, endpoint: string, params: Record<string, any> = {}, method = 'GET', body: Record<string, any> | null = null) {
@@ -73,8 +73,8 @@ async function handleEndpoint(apiCall: () => Promise<any>) {
 
 function getConfig(config: any) {
   return {
-    hubspotAccessToken: config?.HUBSPOT_ACCESS_TOKEN || process.env.HUBSPOT_ACCESS_TOKEN,
-    telemetryEnabled: config?.TELEMETRY_ENABLED || process.env.TELEMETRY_ENABLED || "true"
+    hubspotAccessToken: config?.HUBSPOT_ACCESS_TOKEN ?? process.env.HUBSPOT_ACCESS_TOKEN,
+    telemetryEnabled: config?.TELEMETRY_ENABLED ?? process.env.TELEMETRY_ENABLED ?? "false"
   }
 }
 
@@ -115,7 +115,7 @@ function createServer({ config }: { config?: any } = {}) {
     zip: z.string().optional(),
     type: z.string().optional(),
     lifecyclestage: z.enum(['lead', 'customer', 'opportunity', 'subscriber', 'other']).optional(),
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("crm_create_company",
     "Create a new company with validated properties",
@@ -379,12 +379,16 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("crm_archive_object",
-    "Archive (delete) a CRM object",
+    "DESTRUCTIVE: Archive (delete) a CRM object. Confirm with user before calling. Use dryRun=true to preview.",
     {
       objectType: z.enum(['companies', 'contacts', 'deals', 'tickets', 'products', 'line_items', 'quotes', 'custom']),
-      objectId: z.string()
+      objectId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: params.objectType, objectId: params.objectId, message: `Would archive ${params.objectType} object ${params.objectId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v3/objects/${params.objectType}/${params.objectId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -492,12 +496,16 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("crm_batch_archive_objects",
-    "Archive (delete) multiple CRM objects in a single request",
+    "DESTRUCTIVE: Archive (delete) multiple CRM objects. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
       objectType: z.enum(['companies', 'contacts', 'deals', 'tickets', 'products', 'line_items', 'quotes', 'custom']),
-      objectIds: z.array(z.string()),
+      objectIds: z.array(z.string()).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive", objectType: params.objectType, count: params.objectIds.length, objectIds: params.objectIds, message: `Would archive ${params.objectIds.length} ${params.objectType} objects` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v3/objects/${params.objectType}/batch/archive`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', {
@@ -566,14 +574,18 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("crm_archive_association",
-    "Archive (delete) an association between two objects",
+    "DESTRUCTIVE: Archive (delete) an association between two objects. Confirm with user before calling. Use dryRun=true to preview.",
     {
       fromObjectType: z.enum(['companies', 'contacts', 'deals', 'tickets', 'products', 'line_items', 'quotes', 'custom']),
       toObjectType: z.enum(['companies', 'contacts', 'deals', 'tickets', 'products', 'line_items', 'quotes', 'custom']),
       fromObjectId: z.string(),
-      toObjectId: z.string()
+      toObjectId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive_association", from: `${params.fromObjectType}/${params.fromObjectId}`, to: `${params.toObjectType}/${params.toObjectId}`, message: `Would remove association between ${params.fromObjectType} ${params.fromObjectId} and ${params.toObjectType} ${params.toObjectId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v4/objects/${params.fromObjectType}/${params.fromObjectId}/associations/${params.toObjectType}/${params.toObjectId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -606,16 +618,20 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("crm_batch_archive_associations",
-    "Archive (delete) multiple associations in a single request",
+    "DESTRUCTIVE: Archive (delete) multiple associations. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
       fromObjectType: z.enum(['companies', 'contacts', 'deals', 'tickets', 'products', 'line_items', 'quotes', 'custom']),
       toObjectType: z.enum(['companies', 'contacts', 'deals', 'tickets', 'products', 'line_items', 'quotes', 'custom']),
       inputs: z.array(z.object({
         from: z.object({ id: z.string() }),
         to: z.object({ id: z.string() })
-      }))
+      })).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive_associations", fromType: params.fromObjectType, toType: params.toObjectType, count: params.inputs.length, message: `Would remove ${params.inputs.length} associations between ${params.fromObjectType} and ${params.toObjectType}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v4/associations/${params.fromObjectType}/${params.toObjectType}/batch/archive`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', {
@@ -646,7 +662,7 @@ function createServer({ config }: { config?: any } = {}) {
     twitterhandle: z.string().optional(),
     facebookfanpage: z.string().optional(),
     linkedinbio: z.string().optional(),
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("crm_create_contact",
     "Create a new contact with validated properties",
@@ -847,7 +863,7 @@ function createServer({ config }: { config?: any } = {}) {
     zip: z.string().optional(),
     country: z.string().optional(),
     notes: z.string().optional(),
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("crm_create_lead",
     "Create a new lead with validated properties",
@@ -1126,11 +1142,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("meetings_archive",
-    "Archive (delete) a meeting",
+    "DESTRUCTIVE: Archive (delete) a meeting. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      meetingId: z.string()
+      meetingId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: "meetings", meetingId: params.meetingId, message: `Would archive meeting ${params.meetingId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v3/objects/meetings/${params.meetingId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -1230,11 +1250,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("meetings_batch_archive",
-    "Archive (delete) multiple meetings in a single request",
+    "DESTRUCTIVE: Archive (delete) multiple meetings. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      meetingIds: z.array(z.string()),
+      meetingIds: z.array(z.string()).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive", objectType: "meetings", count: params.meetingIds.length, ids: params.meetingIds, message: `Would archive ${params.meetingIds.length} meetings` })
+      }
       return handleEndpoint(async () => {
         const endpoint = '/crm/v3/objects/meetings/batch/archive'
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', {
@@ -1250,7 +1274,7 @@ function createServer({ config }: { config?: any } = {}) {
     hs_note_body: z.string(),
     hs_timestamp: z.string().optional(),
     hubspot_owner_id: z.string().optional()
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("notes_create",
     "Create a new note",
@@ -1310,11 +1334,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("notes_archive",
-    "Archive (delete) a note",
+    "DESTRUCTIVE: Archive (delete) a note. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      noteId: z.string()
+      noteId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: "notes", noteId: params.noteId, message: `Would archive note ${params.noteId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v3/objects/notes/${params.noteId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -1439,11 +1467,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("notes_batch_archive",
-    "Archive (delete) multiple notes in a single request",
+    "DESTRUCTIVE: Archive (delete) multiple notes. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      noteIds: z.array(z.string()),
+      noteIds: z.array(z.string()).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive", objectType: "notes", count: params.noteIds.length, ids: params.noteIds, message: `Would archive ${params.noteIds.length} notes` })
+      }
       return handleEndpoint(async () => {
         const endpoint = '/crm/v3/objects/notes/batch/archive'
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', {
@@ -1464,7 +1496,7 @@ function createServer({ config }: { config?: any } = {}) {
     hs_timestamp: z.string().optional(),
     hs_task_due_date: z.string().optional(),
     hubspot_owner_id: z.string().optional()
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("tasks_create",
     "Create a new task",
@@ -1524,11 +1556,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("tasks_archive",
-    "Archive (delete) a task",
+    "DESTRUCTIVE: Archive (delete) a task. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      taskId: z.string()
+      taskId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: "tasks", taskId: params.taskId, message: `Would archive task ${params.taskId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v3/objects/tasks/${params.taskId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -1653,11 +1689,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("tasks_batch_archive",
-    "Archive (delete) multiple tasks in a single request",
+    "DESTRUCTIVE: Archive (delete) multiple tasks. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      taskIds: z.array(z.string()),
+      taskIds: z.array(z.string()).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive", objectType: "tasks", count: params.taskIds.length, ids: params.taskIds, message: `Would archive ${params.taskIds.length} tasks` })
+      }
       return handleEndpoint(async () => {
         const endpoint = '/crm/v3/objects/tasks/batch/archive'
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', {
@@ -1682,7 +1722,7 @@ function createServer({ config }: { config?: any } = {}) {
     activityType: z.string().optional(),
     loggedAt: z.string().optional(),
     status: z.string().optional()
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("engagement_details_get",
     "Get details of a specific engagement",
@@ -1764,11 +1804,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("engagement_details_archive",
-    "Archive (delete) an engagement",
+    "DESTRUCTIVE: Archive (delete) an engagement. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      engagementId: z.string()
+      engagementId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: "engagements", engagementId: params.engagementId, message: `Would archive engagement ${params.engagementId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/engagements/v1/engagements/${params.engagementId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -1813,7 +1857,7 @@ function createServer({ config }: { config?: any } = {}) {
     hs_call_title: z.string(),
     hs_timestamp: z.string().optional(),
     hubspot_owner_id: z.string().optional()
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("calls_create",
     "Create a new call record",
@@ -1873,11 +1917,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("calls_archive",
-    "Archive (delete) a call record",
+    "DESTRUCTIVE: Archive (delete) a call record. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      callId: z.string()
+      callId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: "calls", callId: params.callId, message: `Would archive call ${params.callId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v3/objects/calls/${params.callId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -2002,11 +2050,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("calls_batch_archive",
-    "Archive (delete) multiple call records in a single request",
+    "DESTRUCTIVE: Archive (delete) multiple call records. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      callIds: z.array(z.string()),
+      callIds: z.array(z.string()).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive", objectType: "calls", count: params.callIds.length, ids: params.callIds, message: `Would archive ${params.callIds.length} call records` })
+      }
       return handleEndpoint(async () => {
         const endpoint = '/crm/v3/objects/calls/batch/archive'
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', {
@@ -2035,7 +2087,7 @@ function createServer({ config }: { config?: any } = {}) {
     hs_email_cc: z.array(z.string().email()).optional(),
     hs_email_bcc: z.array(z.string().email()).optional(),
     hubspot_owner_id: z.string().optional()
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("emails_create",
     "Create a new email record",
@@ -2095,11 +2147,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("emails_archive",
-    "Archive (delete) an email record",
+    "DESTRUCTIVE: Archive (delete) an email record. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      emailId: z.string()
+      emailId: z.string(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: "emails", emailId: params.emailId, message: `Would archive email ${params.emailId}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/crm/v3/objects/emails/${params.emailId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
@@ -2224,11 +2280,15 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("emails_batch_archive",
-    "Archive (delete) multiple email records in a single request",
+    "DESTRUCTIVE: Archive (delete) multiple email records. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      emailIds: z.array(z.string()),
+      emailIds: z.array(z.string()).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive", objectType: "emails", count: params.emailIds.length, ids: params.emailIds, message: `Would archive ${params.emailIds.length} email records` })
+      }
       return handleEndpoint(async () => {
         const endpoint = '/crm/v3/objects/emails/batch/archive'
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', {
@@ -2245,7 +2305,7 @@ function createServer({ config }: { config?: any } = {}) {
     status: z.enum(['SUBSCRIBED', 'UNSUBSCRIBED', 'NOT_OPTED']),
     legalBasis: z.enum(['LEGITIMATE_INTEREST_CLIENT', 'LEGITIMATE_INTEREST_PUB', 'PERFORMANCE_OF_CONTRACT', 'CONSENT_WITH_NOTICE', 'CONSENT_WITH_NOTICE_AND_OPT_OUT']).optional(),
     legalBasisExplanation: z.string().optional()
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("communications_get_preferences",
     "Get communication preferences for a contact",
@@ -2263,13 +2323,17 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("communications_update_preferences",
-    "Update communication preferences for a contact",
+    "DESTRUCTIVE: Update communication preferences for a contact. Has compliance implications (CAN-SPAM/GDPR). Confirm with user before calling. Use dryRun=true to preview.",
     {
       contactId: z.string(),
       subscriptionId: z.string(),
-      preferences: communicationPreferencesSchema
+      preferences: communicationPreferencesSchema,
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "update_preferences", contactId: params.contactId, subscriptionId: params.subscriptionId, newStatus: params.preferences.status, message: `Would update communication preferences for contact ${params.contactId} on subscription ${params.subscriptionId} to ${params.preferences.status}` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/communication-preferences/v3/status/email/${params.contactId}/subscription/${params.subscriptionId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'PUT', params.preferences)
@@ -2278,13 +2342,17 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("communications_unsubscribe_contact",
-    "Unsubscribe a contact from all email communications",
+    "DESTRUCTIVE: Unsubscribe a contact from all email communications. Has compliance implications (CAN-SPAM/GDPR). Confirm with user before calling. Use dryRun=true to preview.",
     {
       contactId: z.string(),
       portalSubscriptionLegalBasis: z.enum(['LEGITIMATE_INTEREST_CLIENT', 'LEGITIMATE_INTEREST_PUB', 'PERFORMANCE_OF_CONTRACT', 'CONSENT_WITH_NOTICE', 'CONSENT_WITH_NOTICE_AND_OPT_OUT']).optional(),
-      portalSubscriptionLegalBasisExplanation: z.string().optional()
+      portalSubscriptionLegalBasisExplanation: z.string().optional(),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "unsubscribe_contact", contactId: params.contactId, message: `Would unsubscribe contact ${params.contactId} from all email communications` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/communication-preferences/v3/unsubscribe/email/${params.contactId}`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'PUT', {
@@ -2345,7 +2413,7 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("communications_update_subscription_status",
-    "Update subscription status for multiple contacts",
+    "DESTRUCTIVE: Update subscription status for multiple contacts. Has compliance implications (CAN-SPAM/GDPR). Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
       subscriptionId: z.string(),
       updates: z.array(z.object({
@@ -2353,9 +2421,13 @@ function createServer({ config }: { config?: any } = {}) {
         status: z.enum(['SUBSCRIBED', 'UNSUBSCRIBED', 'NOT_OPTED']),
         legalBasis: z.enum(['LEGITIMATE_INTEREST_CLIENT', 'LEGITIMATE_INTEREST_PUB', 'PERFORMANCE_OF_CONTRACT', 'CONSENT_WITH_NOTICE', 'CONSENT_WITH_NOTICE_AND_OPT_OUT']).optional(),
         legalBasisExplanation: z.string().optional()
-      }))
+      })).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
     async (params) => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "update_subscription_status", subscriptionId: params.subscriptionId, count: params.updates.length, contacts: params.updates.map((u: any) => ({ contactId: u.contactId, newStatus: u.status })), message: `Would update subscription status for ${params.updates.length} contacts` })
+      }
       return handleEndpoint(async () => {
         const endpoint = `/communication-preferences/v3/status/email/subscription/${params.subscriptionId}/bulk`
         return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'PUT', {
@@ -2374,7 +2446,7 @@ function createServer({ config }: { config?: any } = {}) {
     sku: z.string().optional(),
     hs_product_type: z.string().optional(),
     hs_recurring_billing_period: z.string().optional(),
-  }).catchall(z.any())
+  }).catchall(z.string())
 
   server.tool("products_list",
     "Read a page of products. Control what is returned via the `properties` query param. `after` is the paging cursor token of the last successfully read resource will be returned as the `paging.next.after` JSON property of a paged response containing more results.",
@@ -2428,12 +2500,17 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("products_archive",
-    "Move an Object identified by ID to the recycling bin.",
-    { productId: z.string() },
-    async params => handleEndpoint(async () => {
-      const endpoint = `/crm/v3/objects/products/${params.productId}`
-      return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
-    })
+    "DESTRUCTIVE: Move a product to the recycling bin. Confirm with user before calling. Use dryRun=true to preview.",
+    { productId: z.string(), dryRun: z.boolean().optional().default(false) },
+    async params => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "archive", objectType: "products", productId: params.productId, message: `Would archive product ${params.productId}` })
+      }
+      return handleEndpoint(async () => {
+        const endpoint = `/crm/v3/objects/products/${params.productId}`
+        return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'DELETE')
+      })
+    }
   )
 
   server.tool("products_search",
@@ -2466,14 +2543,20 @@ function createServer({ config }: { config?: any } = {}) {
   )
 
   server.tool("products_batch_archive",
-    "Archive (delete) a batch of products by ID",
+    "DESTRUCTIVE: Archive (delete) a batch of products. Max 10 per call. Confirm with user before calling. Use dryRun=true to preview.",
     {
-      productIds: z.array(z.string()),
+      productIds: z.array(z.string()).max(10),
+      dryRun: z.boolean().optional().default(false)
     },
-    async params => handleEndpoint(async () => {
-      const endpoint = '/crm/v3/objects/products/batch/archive'
-      return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', { inputs: params.productIds.map((id: string) => ({ id })) })
-    })
+    async params => {
+      if (params.dryRun) {
+        return formatResponse({ dryRun: true, action: "batch_archive", objectType: "products", count: params.productIds.length, ids: params.productIds, message: `Would archive ${params.productIds.length} products` })
+      }
+      return handleEndpoint(async () => {
+        const endpoint = '/crm/v3/objects/products/batch/archive'
+        return await makeApiRequestWithErrorHandling(hubspotAccessToken, endpoint, {}, 'POST', { inputs: params.productIds.map((id: string) => ({ id })) })
+      })
+    }
   )
 
   server.tool("products_batch_create",
@@ -2517,6 +2600,175 @@ function createServer({ config }: { config?: any } = {}) {
     })
   )
 
+  // Composite Workflow Tools
+
+  server.tool("workflow_onboard_client",
+    "Onboard a new client: creates a company, creates a contact, associates them, and optionally creates a deal. Returns all created record IDs.",
+    {
+      company: z.object({
+        name: z.string(),
+        domain: z.string().optional(),
+        industry: z.string().optional(),
+        phone: z.string().optional(),
+        website: z.string().url().optional()
+      }),
+      contact: z.object({
+        email: z.string().email(),
+        firstname: z.string(),
+        lastname: z.string(),
+        phone: z.string().optional(),
+        jobtitle: z.string().optional()
+      }),
+      deal: z.object({
+        dealname: z.string(),
+        amount: z.string().optional(),
+        dealstage: z.string().optional(),
+        pipeline: z.string().optional()
+      }).optional(),
+      dryRun: z.boolean().optional().default(false)
+    },
+    async (params) => {
+      const results: Record<string, any> = { steps: [] }
+
+      if (params.dryRun) {
+        return formatResponse({
+          dryRun: true,
+          action: "onboard_client",
+          steps: [
+            { step: 1, action: "create_company", data: params.company },
+            { step: 2, action: "create_contact", data: params.contact },
+            { step: 3, action: "associate_contact_to_company" },
+            ...(params.deal ? [{ step: 4, action: "create_deal", data: params.deal }, { step: 5, action: "associate_deal_to_company_and_contact" }] : [])
+          ],
+          message: `Would onboard client: create company "${params.company.name}", contact "${params.contact.firstname} ${params.contact.lastname}"${params.deal ? `, and deal "${params.deal.dealname}"` : ""}`
+        })
+      }
+
+      try {
+        const companyRes = await makeApiRequest(hubspotAccessToken, '/crm/v3/objects/companies', {}, 'POST', { properties: params.company })
+        if (typeof companyRes === 'string') return formatResponse({ error: companyRes, failedAt: "create_company" })
+        results.company = { id: companyRes.id, ...params.company }
+        results.steps.push({ step: 1, action: "create_company", status: "success", id: companyRes.id })
+
+        const contactRes = await makeApiRequest(hubspotAccessToken, '/crm/v3/objects/contacts', {}, 'POST', { properties: params.contact })
+        if (typeof contactRes === 'string') return formatResponse({ error: contactRes, failedAt: "create_contact", completed: results })
+        results.contact = { id: contactRes.id, ...params.contact }
+        results.steps.push({ step: 2, action: "create_contact", status: "success", id: contactRes.id })
+
+        const assocRes = await makeApiRequest(hubspotAccessToken, `/crm/v4/objects/contacts/${contactRes.id}/associations/companies/${companyRes.id}`, {}, 'PUT', {
+          types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 1 }]
+        })
+        if (typeof assocRes === 'string') return formatResponse({ error: assocRes, failedAt: "associate_contact_to_company", completed: results })
+        results.steps.push({ step: 3, action: "associate_contact_to_company", status: "success" })
+
+        if (params.deal) {
+          const dealRes = await makeApiRequest(hubspotAccessToken, '/crm/v3/objects/deals', {}, 'POST', { properties: params.deal })
+          if (typeof dealRes === 'string') return formatResponse({ error: dealRes, failedAt: "create_deal", completed: results })
+          results.deal = { id: dealRes.id, ...params.deal }
+          results.steps.push({ step: 4, action: "create_deal", status: "success", id: dealRes.id })
+
+          await makeApiRequest(hubspotAccessToken, `/crm/v4/objects/deals/${dealRes.id}/associations/companies/${companyRes.id}`, {}, 'PUT', {
+            types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 341 }]
+          })
+          await makeApiRequest(hubspotAccessToken, `/crm/v4/objects/deals/${dealRes.id}/associations/contacts/${contactRes.id}`, {}, 'PUT', {
+            types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 3 }]
+          })
+          results.steps.push({ step: 5, action: "associate_deal", status: "success" })
+        }
+
+        results.status = "success"
+        return formatResponse(results)
+      } catch (error: any) {
+        return formatResponse({ error: error.message, completed: results })
+      }
+    }
+  )
+
+  server.tool("workflow_update_deal_value",
+    "Update a deal's monetary value and optionally its stage. Fetches current deal first to show what changed.",
+    {
+      dealId: z.string(),
+      amount: z.string().optional().describe("New deal amount as a string, e.g. '50000'"),
+      dealstage: z.string().optional().describe("New deal stage ID"),
+      dealname: z.string().optional(),
+      closedate: z.string().optional().describe("Expected close date in ISO format"),
+      dryRun: z.boolean().optional().default(false)
+    },
+    async (params) => {
+      try {
+        const currentDeal = await makeApiRequest(hubspotAccessToken, `/crm/v3/objects/deals/${params.dealId}`, {
+          properties: 'dealname,amount,dealstage,closedate,pipeline'
+        })
+        if (typeof currentDeal === 'string') return formatResponse({ error: currentDeal, failedAt: "fetch_current_deal" })
+
+        const updates: Record<string, string> = {}
+        if (params.amount !== undefined) updates.amount = params.amount
+        if (params.dealstage !== undefined) updates.dealstage = params.dealstage
+        if (params.dealname !== undefined) updates.dealname = params.dealname
+        if (params.closedate !== undefined) updates.closedate = params.closedate
+
+        if (Object.keys(updates).length === 0) {
+          return formatResponse({ error: "No updates provided. Specify at least one of: amount, dealstage, dealname, closedate" })
+        }
+
+        const changes = Object.entries(updates).map(([key, newVal]) => ({
+          property: key,
+          oldValue: currentDeal.properties?.[key] ?? null,
+          newValue: newVal
+        }))
+
+        if (params.dryRun) {
+          return formatResponse({ dryRun: true, action: "update_deal", dealId: params.dealId, currentDeal: currentDeal.properties, proposedChanges: changes, message: `Would update deal ${params.dealId}` })
+        }
+
+        const updateRes = await makeApiRequest(hubspotAccessToken, `/crm/v3/objects/deals/${params.dealId}`, {}, 'PATCH', { properties: updates })
+        if (typeof updateRes === 'string') return formatResponse({ error: updateRes, failedAt: "update_deal" })
+
+        return formatResponse({ status: "success", dealId: params.dealId, changes, updatedProperties: updateRes.properties })
+      } catch (error: any) {
+        return formatResponse({ error: error.message })
+      }
+    }
+  )
+
+  server.tool("workflow_link_contact_to_company",
+    "Find or verify a contact and company by ID, then create an association between them. Returns the association result and both record summaries.",
+    {
+      contactId: z.string(),
+      companyId: z.string(),
+      dryRun: z.boolean().optional().default(false)
+    },
+    async (params) => {
+      try {
+        const [contact, company] = await Promise.all([
+          makeApiRequest(hubspotAccessToken, `/crm/v3/objects/contacts/${params.contactId}`, { properties: 'firstname,lastname,email' }),
+          makeApiRequest(hubspotAccessToken, `/crm/v3/objects/companies/${params.companyId}`, { properties: 'name,domain' })
+        ])
+
+        if (typeof contact === 'string') return formatResponse({ error: contact, failedAt: "fetch_contact" })
+        if (typeof company === 'string') return formatResponse({ error: company, failedAt: "fetch_company" })
+
+        const summary = {
+          contact: { id: contact.id, name: `${contact.properties?.firstname ?? ''} ${contact.properties?.lastname ?? ''}`.trim(), email: contact.properties?.email },
+          company: { id: company.id, name: company.properties?.name, domain: company.properties?.domain }
+        }
+
+        if (params.dryRun) {
+          return formatResponse({ dryRun: true, action: "link_contact_to_company", ...summary, message: `Would associate contact "${summary.contact.name}" (${summary.contact.email}) with company "${summary.company.name}"` })
+        }
+
+        const assocRes = await makeApiRequest(hubspotAccessToken, `/crm/v4/objects/contacts/${params.contactId}/associations/companies/${params.companyId}`, {}, 'PUT', {
+          types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 1 }]
+        })
+        if (typeof assocRes === 'string') return formatResponse({ error: assocRes, failedAt: "create_association", ...summary })
+
+        return formatResponse({ status: "success", ...summary, message: `Successfully associated contact "${summary.contact.name}" with company "${summary.company.name}"` })
+      } catch (error: any) {
+        return formatResponse({ error: error.message })
+      }
+    }
+  )
+
   return server.server
 }
 
@@ -2525,7 +2777,9 @@ const stdioServer = createServer({})
 const transport = new StdioServerTransport()
 await stdioServer.connect(transport)
 
-// Streamable HTTP Server
-const { app } = createStatefulServer(createServer)
-const PORT = process.env.PORT || 3000
-app.listen(PORT)
+// Streamable HTTP Server (opt-in via ENABLE_HTTP=true)
+if (process.env.ENABLE_HTTP === "true") {
+  const { app } = createStatefulServer(createServer)
+  const PORT = process.env.PORT || 3000
+  app.listen(PORT)
+}
