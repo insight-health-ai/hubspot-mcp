@@ -1,23 +1,23 @@
-<div align="center">
-    <h1 align="center">HubSpot MCP Server</h1>
-    <p align=center>
-        <a href="https://badge.fury.io/js/@shinzolabs%2Fhubspot-mcp"><img src="https://badge.fury.io/js/@shinzolabs%2Fhubspot-mcp.svg" alt="NPM Version"></a>
-        <a href="https://github.com/shinzo-labs/hubspot-mcp/stargazers"><img src="https://img.shields.io/github/stars/shinzo-labs/hubspot-mcp?style=flat&logo=github&color=e3b341" alt="Stars"></a>
-        <a href="https://github.com/shinzo-labs/hubspot-mcp/forks"><img src="https://img.shields.io/github/forks/shinzo-labs/hubspot-mcp?style=flat&logo=github&color=8957e5" alt="Forks"></a>
-        <a href="https://smithery.ai/server/@shinzo-labs/hubspot-mcp"><img src="https://smithery.ai/badge/@shinzo-labs/hubspot-mcp" alt="Smithery Calls"></a>
-        <a href="https://www.npmjs.com/package/@shinzolabs/hubspot-mcp"><img src="https://img.shields.io/npm/dm/%40shinzolabs%2Fhubspot-mcp" alt="NPM Downloads"></a>
-</div>
+# HubSpot MCP Server
 
-A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) server implementation for the [HubSpot](https://hubspot.com/) API, providing a standardized interface for accessing and managing CRM data.
-
-<p align="center"><img height="512" src=https://github.com/user-attachments/assets/6a0febe5-1aa5-4998-affb-6c5874ed00c4></p>
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) server for the [HubSpot](https://hubspot.com/) API, built for AI agents to safely read and write CRM data. Forked from [@shinzolabs/hubspot-mcp](https://github.com/shinzo-labs/hubspot-mcp) with safety guardrails and composite workflow tools.
 
 ## Features
 
-- Complete coverage of the HubSpot CRM API
+- Complete coverage of the HubSpot CRM API (112+ tools)
+- **Safety guardrails** for AI agent usage:
+  - `dryRun` parameter on all destructive tools (preview before executing)
+  - Batch operations capped at 10 items per call
+  - Destructive tool descriptions warn agents to confirm with users
+  - HTTP transport disabled by default (opt-in via `ENABLE_HTTP=true`)
+  - Telemetry disabled by default (opt-in via `TELEMETRY_ENABLED=true`)
+  - Tightened schema validation (`.catchall(z.string())`)
+- **Composite workflow tools** for common multi-step operations:
+  - `workflow_onboard_client` — create company + contact + association + deal in one call
+  - `workflow_update_deal_value` — fetch current deal, show diff, then update
+  - `workflow_link_contact_to_company` — verify both records, then associate
 - Support for all standard CRM objects (companies, contacts, deals, etc.)
 - Advanced association management with CRM Associations v4
-- Company-specific endpoints with property validation
 - Batch operations for efficient data management
 - Advanced search and filtering capabilities
 - Type-safe parameter validation with [Zod](https://zod.dev/)
@@ -26,35 +26,32 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) s
 
 If you don't have an API key, follow the steps [here](https://developers.hubspot.com/docs/guides/api/overview) to obtain an access token. OAuth support is planned as a future enhancement.
 
-## Client Configuration
+## Setup
 
-There are several options to configure your MCP client with the server. For hosted/remote server setup, use Smithery's CLI with a [Smithery API Key](https://smithery.ai/docs/registry#registry-api). For local installation, use `npx` or build from source. Each of these options is explained below.
+### 1. Get a HubSpot Access Token
 
-### Smithery Remote Server (Recommended)
+If you don't already have one, create a [HubSpot private app](https://developers.hubspot.com/docs/guides/api/overview) and copy the access token. Grant it scopes for the CRM objects you need (contacts, companies, deals, etc.).
 
-To add a remote server to your MCP client `config.json`, run the following command from [Smithery CLI](https://github.com/smithery-ai/cli?tab=readme-ov-file#smithery-cli--):
+### 2. Build from Source
 
 ```bash
-npx -y @smithery/cli install @shinzo-labs/hubspot-mcp
+git clone https://github.com/insight-health-ai/hubspot-mcp.git
+cd hubspot-mcp
+pnpm install
+pnpm build
 ```
 
-Enter your `HUBSPOT_ACCESS_TOKEN` when prompted.
+### 3. Configure Your MCP Client
 
-### Smithery SDK
+Add the following to your MCP client config:
 
-If you are developing your own agent application, you can use the boilerplate code [here](https://smithery.ai/server/@shinzo-labs/hubspot-mcp/api).
-
-### NPX Local Install
-
-To install the server locally with `npx`, add the following to your MCP client `config.json`:
-```javascript
+**Cursor** (`.cursor/mcp.json`):
+```json
 {
   "mcpServers": {
     "hubspot": {
-      "command": "npx",
-      "args": [
-        "@shinzolabs/hubspot-mcp"
-      ],
+      "command": "node",
+      "args": ["/path/to/hubspot-mcp/dist/index.js"],
       "env": {
         "HUBSPOT_ACCESS_TOKEN": "your-access-token-here"
       }
@@ -63,27 +60,13 @@ To install the server locally with `npx`, add the following to your MCP client `
 }
 ```
 
-### Build from Source
-
-1. Download the repo:
-```bash
-git clone https://github.com/shinzo-labs/hubspot-mcp.git
-```
-
-2. Install packages (inside cloned repo):
-```bash
-pnpm i
-```
-
-3. Add the following to your MCP client `config.json`:
-```javascript
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
 {
   "mcpServers": {
     "hubspot": {
       "command": "node",
-      "args": [
-        "/path/to/hubspot-mcp/index.js"
-      ],
+      "args": ["/path/to/hubspot-mcp/dist/index.js"],
       "env": {
         "HUBSPOT_ACCESS_TOKEN": "your-access-token-here"
       }
@@ -94,11 +77,89 @@ pnpm i
 
 ## Config Variables
 
-| Variable               | Description                               | Required? | Default |
-|------------------------|-------------------------------------------|-----------|---------|
-| `HUBSPOT_ACCESS_TOKEN` | Access Token for Hubspot Application      | Yes       |         |
-| `PORT                ` | Port for Streamable HTTP transport method | No        | `3000`  |
-| `TELEMETRY_ENABLED`    | Enable telemetry                          | No        | `true`  |
+| Variable               | Description                                             | Required | Default |
+|------------------------|---------------------------------------------------------|----------|---------|
+| `HUBSPOT_ACCESS_TOKEN` | Access token for your HubSpot private app               | Yes      |         |
+| `TELEMETRY_ENABLED`    | Send anonymous telemetry to Shinzo Labs                 | No       | `false` |
+| `ENABLE_HTTP`          | Start the Streamable HTTP transport (exposes port)      | No       | `false` |
+| `PORT`                 | Port for HTTP transport (only used if `ENABLE_HTTP=true`) | No       | `3000`  |
+
+## Safety Guardrails
+
+All destructive operations (archive, delete, unsubscribe) include built-in safety mechanisms:
+
+- **`dryRun` parameter** — pass `dryRun: true` to any destructive tool to preview what would happen without executing. Returns a summary of the action that would be taken.
+- **Batch caps** — batch archive operations are limited to 10 items per call to prevent accidental mass deletion.
+- **Description warnings** — all destructive tools are prefixed with `DESTRUCTIVE:` in their descriptions, instructing AI agents to confirm with the user before executing.
+- **No silent HTTP** — the HTTP transport only starts if you explicitly set `ENABLE_HTTP=true`. By default, only the stdio transport is active.
+
+### dryRun Example
+
+```json
+{
+  "tool": "crm_archive_object",
+  "params": {
+    "objectType": "contacts",
+    "objectId": "12345",
+    "dryRun": true
+  }
+}
+```
+
+Returns:
+```json
+{
+  "dryRun": true,
+  "action": "archive",
+  "objectType": "contacts",
+  "objectId": "12345",
+  "message": "Would archive contacts object 12345"
+}
+```
+
+## Workflow Tools
+
+Composite tools that handle multi-step CRM operations in a single call:
+
+### `workflow_onboard_client`
+
+Creates a company, contact, associates them, and optionally creates a deal — all in one call.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `company.name` | Yes | Company name |
+| `company.domain` | No | Company domain |
+| `company.industry` | No | Industry |
+| `contact.email` | Yes | Contact email |
+| `contact.firstname` | Yes | First name |
+| `contact.lastname` | Yes | Last name |
+| `deal.dealname` | No | Deal name (creates deal if provided) |
+| `deal.amount` | No | Deal amount |
+| `deal.dealstage` | No | Deal stage ID |
+| `dryRun` | No | Preview without executing |
+
+### `workflow_update_deal_value`
+
+Fetches the current deal, shows a diff of proposed changes, then applies the update.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `dealId` | Yes | Deal ID to update |
+| `amount` | No | New deal amount |
+| `dealstage` | No | New deal stage ID |
+| `dealname` | No | New deal name |
+| `closedate` | No | New expected close date (ISO format) |
+| `dryRun` | No | Preview changes without applying |
+
+### `workflow_link_contact_to_company`
+
+Verifies both the contact and company exist, then creates the association between them.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `contactId` | Yes | Contact ID |
+| `companyId` | Yes | Company ID |
+| `dryRun` | No | Preview without executing |
 
 ## Supported Tools
 
@@ -253,13 +314,13 @@ pnpm i
   - `products_batch_update`: Update a batch of products by internal ID, or unique values specified by the `idProperty` query param.
   - `products_batch_archive`: Archive a batch of products by ID
 
-## Contributing
-
-Contributions are welcomed and encouraged! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on issues, contributions, and contact information.
-
 ## Data Collection and Privacy
 
-Shinzo Labs collects limited anonymous telemetry from this server to help improve our products and services. No personally identifiable information is collected as part of this process. Please review the [Privacy Policy](./PRIVACY.md) for more details on the types of data collected and how to opt-out of this telemetry.
+Telemetry is **disabled by default**. If enabled via `TELEMETRY_ENABLED=true`, limited anonymous telemetry is sent to Shinzo Labs (the upstream project maintainer). No PII, IP addresses, or tool arguments are collected. See [PRIVACY.md](./PRIVACY.md) for details.
+
+## Upstream
+
+Forked from [@shinzolabs/hubspot-mcp](https://github.com/shinzo-labs/hubspot-mcp). Original project by [Austin Born](https://github.com/shinzo-labs).
 
 ## License
 
